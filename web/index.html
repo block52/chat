@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>block52 table chat</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+  header { padding: 10px 14px; background: #181b22; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  header input { background: #0f1115; color: #e6e6e6; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; }
+  #log { padding: 12px 14px; height: calc(100vh - 150px); overflow-y: auto; }
+  .msg { margin: 2px 0; }
+  .addr { color: #7aa2f7; }
+  .err { color: #f7768e; }
+  .ts { color: #565f89; font-size: 11px; margin-right: 6px; }
+  footer { display: flex; gap: 8px; padding: 10px 14px; background: #181b22; }
+  footer input { flex: 1; background: #0f1115; color: #e6e6e6; border: 1px solid #333; border-radius: 6px; padding: 8px; }
+  button { background: #7aa2f7; color: #0f1115; border: 0; border-radius: 6px; padding: 8px 14px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <strong>table chat</strong>
+  <label>table <input id="table" value="demo" size="10" /></label>
+  <button id="connect">Connect (Keplr)</button>
+  <span id="who"></span>
+</header>
+<div id="log"></div>
+<footer>
+  <input id="text" placeholder="message…" autocomplete="off" />
+  <button id="send">Send</button>
+</footer>
+
+<!--
+  Reference client. Signing uses Keplr's signArbitrary (ADR-36), which is what
+  the server's auth.Verify expects. For non-browser clients, sign the same
+  StdSignDoc and send { address, pubKey, signature, message, text }.
+-->
+<script>
+const log = document.getElementById('log');
+const chainId = 'cosmoshub-4'; // change to your chain-id
+let ws, account;
+
+function line(html, cls) {
+  const d = document.createElement('div');
+  d.className = 'msg' + (cls ? ' ' + cls : '');
+  d.innerHTML = html;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+}
+function esc(s) { return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function short(a) { return a.slice(0, 10) + '…' + a.slice(-4); }
+
+document.getElementById('connect').onclick = async () => {
+  if (!window.keplr) { line('Keplr not found', 'err'); return; }
+  await window.keplr.enable(chainId);
+  const key = await window.keplr.getKey(chainId);
+  account = { address: key.bech32Address, pubKey: btoa(String.fromCharCode(...key.pubKey)) };
+  document.getElementById('who').textContent = short(account.address);
+  openSocket();
+};
+
+function openSocket() {
+  const table = encodeURIComponent(document.getElementById('table').value.trim());
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?table=${table}`);
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'error') { line('error: ' + esc(m.error), 'err'); return; }
+    const t = new Date(m.ts).toLocaleTimeString();
+    line(`<span class="ts">${t}</span><span class="addr">${short(m.address)}</span>: ${esc(m.text)}`);
+  };
+  ws.onopen = () => line('connected');
+  ws.onclose = () => line('disconnected', 'err');
+}
+
+document.getElementById('send').onclick = send;
+document.getElementById('text').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+async function send() {
+  if (!account || !ws || ws.readyState !== 1) { line('not connected', 'err'); return; }
+  const input = document.getElementById('text');
+  const text = input.value.trim();
+  if (!text) return;
+  // Sign the exact text; the server requires signed message === text.
+  const res = await window.keplr.signArbitrary(chainId, account.address, text);
+  ws.send(JSON.stringify({
+    address: account.address,
+    pubKey: account.pubKey,     // compressed secp256k1, base64
+    signature: res.signature,   // 64-byte compact, base64
+    message: text,
+    text: text,
+  }));
+  input.value = '';
+}
+</script>
+</body>
+</html>

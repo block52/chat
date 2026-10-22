@@ -1,0 +1,31 @@
+# In-memory chat server. No volumes are mounted: state is intentionally ephemeral
+# and is lost on restart. nginx terminates TLS on the VM and proxies to this.
+services:
+  chat:
+    build: .
+    restart: unless-stopped
+    environment:
+      CHAT_LISTEN: ":8080"
+      # Restrict to your chain's bech32 prefix, e.g. "cosmos". Empty = any prefix.
+      CHAT_EXPECTED_HRP: ""
+      # Comma-separated allowed browser origins (for the websocket Origin check).
+      # Leave empty for same-origin only.
+      CHAT_ALLOWED_ORIGINS: ""
+      CHAT_MAX_MESSAGES: "200"
+      CHAT_MESSAGE_TTL_SEC: "3600"
+      CHAT_TABLE_IDLE_TTL_SEC: "7200"
+      CHAT_SWEEP_SEC: "300"
+    # Bind to loopback only; nginx on the VM is the public entrypoint.
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "/app/chat", "-healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    # Hard memory cap keeps the in-memory store bounded.
+    deploy:
+      resources:
+        limits:
+          memory: 256M

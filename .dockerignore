@@ -1,0 +1,8 @@
+.git
+.gitignore
+*.md
+deploy
+chat
+out
+.env
+.DS_Store
